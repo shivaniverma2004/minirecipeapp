@@ -3,10 +3,7 @@
 //  miniRecipe
 //
 //  Created by Shivani Verma on 11/12/25.
-//  Updated to match the exact SDK shapes you have:
-//  - resp.data is non-optional Data
-//  - storage methods use labels: upload(path:file:), getPublicURL(path:), createSignedURL(path:expiresIn:)
-//
+
 
 import Foundation
 import SwiftUI

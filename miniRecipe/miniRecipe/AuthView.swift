@@ -24,7 +24,6 @@ struct AuthView: View {
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
 
-    /// Called with `true` on successful auth (so callers can refresh and dismiss)
     var onComplete: ((Bool) -> Void)? = nil
 
     var body: some View {
