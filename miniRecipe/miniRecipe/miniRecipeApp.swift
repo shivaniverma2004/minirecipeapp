@@ -20,8 +20,7 @@ struct miniRecipeApp: App {
                 } else {
                     AuthView { success in
                         if success {
-                            // AuthView dismissed and signed in — trigger view update
-                            // SupabaseManager.isSignedIn will be set by signIn/signUp
+                            
                         }
                     }
                     .environmentObject(supabase)
@@ -29,8 +28,7 @@ struct miniRecipeApp: App {
             }
             .onAppear {
                 Task {
-                    // Optionally try to restore session if you implement restoreSessionIfNeeded()
-                    // await supabase.restoreSessionIfNeeded()
+                    
                 }
             }
         }

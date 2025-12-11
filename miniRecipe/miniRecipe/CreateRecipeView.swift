@@ -16,7 +16,7 @@ struct CreateRecipeView: View {
     @State private var title: String = ""
     @State private var description: String = ""
 
-    // Image picker state (kept for future use)
+    // Image picker state 
     @State private var showingImagePicker = false
     @State private var showingPhotoOptions = false
     @State private var pickedImage: UIImage? = nil
@@ -76,7 +76,6 @@ struct CreateRecipeView: View {
 
                         HStack {
                             Button {
-                                // Keep UI flow to pick an image for preview, but warn user images won't be uploaded yet.
                                 showingPhotoOptions = true
                             } label: {
                                 Label("Choose Photo", systemImage: "photo")

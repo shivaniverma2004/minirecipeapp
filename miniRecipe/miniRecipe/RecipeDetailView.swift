@@ -9,7 +9,6 @@ import SwiftUI
 struct RecipeDetailView: View {
     let recipe: Recipe
 
-    // Local optimistic state for likes (not persisted unless you implement an API)
     @State private var localLikes: Int
     @State private var liked: Bool = false
     @State private var showingShare = false
@@ -87,7 +86,6 @@ struct RecipeDetailView: View {
 
                         Spacer()
 
-                        // Like + Share buttons
                         HStack(spacing: 12) {
                             Button(action: toggleLike) {
                                 HStack(spacing: 6) {
@@ -153,20 +151,17 @@ struct RecipeDetailView: View {
         }
     }
 
-    // MARK: - Actions
 
     private func toggleLike() {
-        // Optimistic UI update. To persist likes, call your SupabaseManager update method here.
+       
         liked.toggle()
         localLikes += liked ? 1 : -1
         // TODO: call SupabaseManager.shared.updateRecipeLikes(id: recipe.id, likes: localLikes)
     }
 
-    // MARK: - Helpers
 
     private var authorInitials: String {
         if let id = recipe.authorID, !id.isEmpty {
-            // show first 2 chars of author id as fallback
             return String(id.prefix(2)).uppercased()
         }
         return "U"
