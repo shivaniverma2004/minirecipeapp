@@ -2,87 +2,76 @@
 //  CreateRecipeView.swift
 //  miniRecipe
 //
-//  Created by Shivani Verma on 11/12/25.
-
 
 import SwiftUI
 import UIKit
 
 struct CreateRecipeView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var supabase = SupabaseManager.shared
+    @EnvironmentObject private var supabase: SupabaseManager
 
-    // Form fields
     @State private var title: String = ""
     @State private var description: String = ""
 
-    // Image picker state 
     @State private var showingImagePicker = false
     @State private var showingPhotoOptions = false
     @State private var pickedImage: UIImage? = nil
     @State private var pickedImagePreview: Image? = nil
 
-    // UI state
     @State private var isSaving = false
     @State private var alertMessage: String?
     @State private var showAlert = false
 
-    // completion callback so caller refreshes list
     var onCreate: (() -> Void)? = nil
 
+    @State private var imagePickerSourceType: UIImagePickerController.SourceType = .photoLibrary
+
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
-                Section(header: Text("Details")) {
+                Section("Details") {
                     TextField("Recipe title", text: $title)
-                        .autocapitalization(.words)
+                        .textInputAutocapitalization(.words)
                     TextEditor(text: $description)
                         .frame(minHeight: 100)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(UIColor.tertiarySystemFill), lineWidth: 1)
+                                .stroke(Color(uiColor: .tertiarySystemFill), lineWidth: 1)
                         )
                         .padding(.vertical, 4)
                 }
 
-                Section(header: Text("Image (disabled until storage is configured)")) {
-                    VStack {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
                         if let preview = pickedImagePreview {
                             preview
                                 .resizable()
                                 .scaledToFill()
                                 .frame(height: 180)
                                 .clipped()
-                                .cornerRadius(8)
-                                .padding(.bottom, 8)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                         } else {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(UIColor.secondarySystemBackground))
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(uiColor: .secondarySystemGroupedBackground))
                                 .frame(height: 180)
-                                .overlay(
-                                    VStack {
+                                .overlay {
+                                    VStack(spacing: 8) {
                                         Image(systemName: "photo.on.rectangle.angled")
                                             .font(.largeTitle)
-                                            .foregroundColor(.secondary)
-                                        Text("Image preview will work once upload is enabled")
-                                            .foregroundColor(.secondary)
-                                            .font(.footnote)
-                                            .multilineTextAlignment(.center)
+                                            .foregroundStyle(.secondary)
+                                        Text("Add a photo")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
                                     }
-                                    .padding()
-                                )
-                                .padding(.bottom, 8)
+                                }
                         }
-
                         HStack {
                             Button {
                                 showingPhotoOptions = true
                             } label: {
                                 Label("Choose Photo", systemImage: "photo")
                             }
-
                             Spacer()
-
                             if pickedImage != nil {
                                 Button(role: .destructive) {
                                     pickedImage = nil
@@ -93,17 +82,21 @@ struct CreateRecipeView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("Photo")
+                } footer: {
+                    Text("JPEG, stored in your Supabase bucket. Public URL is saved on the recipe.")
                 }
 
                 if let msg = alertMessage {
                     Section {
                         Text(msg)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                             .font(.footnote)
                     }
                 }
             }
-            .navigationTitle("Create Recipe")
+            .navigationTitle("New recipe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -113,12 +106,12 @@ struct CreateRecipeView: View {
                         if isSaving {
                             ProgressView()
                         } else {
-                            Text("Save").bold()
+                            Text("Save")
+                                .fontWeight(.semibold)
                         }
                     }
                     .disabled(!canSave || isSaving)
                 }
-
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
@@ -127,25 +120,23 @@ struct CreateRecipeView: View {
                 ImagePicker(sourceType: imagePickerSourceType, selectedImage: $pickedImage, onComplete: {
                     if let ui = pickedImage {
                         pickedImagePreview = Image(uiImage: ui)
-                    } else {
-                        pickedImagePreview = nil
                     }
                 })
             }
-            .actionSheet(isPresented: $showingPhotoOptions) {
-                ActionSheet(title: Text("Photo"), message: nil, buttons: [
-                    .default(Text("Choose from Library")) {
-                        imagePickerSourceType = .photoLibrary
-                        showingImagePicker = true
-                    },
-                    .default(Text("Take Photo")) {
+            .confirmationDialog("Add a photo", isPresented: $showingPhotoOptions) {
+                Button("Choose from Library") {
+                    imagePickerSourceType = .photoLibrary
+                    showingImagePicker = true
+                }
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("Take Photo") {
                         imagePickerSourceType = .camera
                         showingImagePicker = true
-                    },
-                    .cancel()
-                ])
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
             }
-            .onChange(of: pickedImage) { newValue in
+            .onChange(of: pickedImage) { _, newValue in
                 if let ui = newValue {
                     pickedImagePreview = Image(uiImage: ui)
                 } else {
@@ -155,103 +146,59 @@ struct CreateRecipeView: View {
             .alert("Error", isPresented: $showAlert, presenting: alertMessage) { _ in
                 Button("OK", role: .cancel) { alertMessage = nil }
             } message: { msg in
-                Text(msg ?? "Unknown error")
+                Text(msg)
             }
         }
     }
-
-    // local image picker source type
-    @State private var imagePickerSourceType: UIImagePickerController.SourceType = .photoLibrary
 
     private var canSave: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Save flow (current simplified behavior):
-    /// - This version **only inserts the title** via `SupabaseManager.addRecipe(title:)`
-    /// - If you want image upload and description stored, we will enable it after updating SupabaseManager.
     private func saveRecipe() async {
         guard canSave else { return }
         isSaving = true
         alertMessage = nil
 
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let descriptionToSave = trimmedDesc.isEmpty ? nil : trimmedDesc
+
+        var imageURL: String?
+        if let img = pickedImage {
+            do {
+                let name = "\(UUID().uuidString.lowercased()).jpg"
+                imageURL = try await supabase.uploadRecipeImage(img, fileName: name)
+            } catch {
+                await MainActor.run {
+                    alertMessage = UserFacingAPIError.message(for: error)
+                    showAlert = true
+                    isSaving = false
+                }
+                return
+            }
+        }
+
         do {
-            // NOTE: current SupabaseManager only supports addRecipe(title:).
-            // We preserve description and image UI for future use.
-            try await supabase.addRecipe(title: title.trimmingCharacters(in: .whitespacesAndNewlines))
+            _ = try await supabase.addRecipe(
+                title: trimmedTitle,
+                description: descriptionToSave,
+                imageURL: imageURL
+            )
 
             await MainActor.run {
                 onCreate?()
+                NotificationCenter.default.post(name: .miniRecipeLibraryDidChange, object: nil)
                 isSaving = false
                 dismiss()
             }
         } catch {
             await MainActor.run {
-                alertMessage = "Failed to create recipe: \(error.localizedDescription)"
+                alertMessage = error.localizedDescription
                 showAlert = true
                 isSaving = false
             }
-            print("CreateRecipeView save error:", error)
+            AppLog.recipe("create recipe save failed: \(error.localizedDescription)")
         }
     }
 }
-
-// MARK: - UIImagePickerController wrapper for SwiftUI
-struct ImagePicker: UIViewControllerRepresentable {
-    var sourceType: UIImagePickerController.SourceType = .photoLibrary
-    @Binding var selectedImage: UIImage?
-    var onComplete: (() -> Void)? = nil
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = sourceType
-        picker.allowsEditing = true
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {
-        // no-op
-    }
-
-    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        let parent: ImagePicker
-
-        init(_ parent: ImagePicker) {
-            self.parent = parent
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.selectedImage = nil
-            parent.onComplete?()
-            picker.dismiss(animated: true)
-        }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            var selected: UIImage?
-
-            if let edited = info[.editedImage] as? UIImage {
-                selected = edited
-            } else if let original = info[.originalImage] as? UIImage {
-                selected = original
-            }
-
-            parent.selectedImage = selected
-            parent.onComplete?()
-            picker.dismiss(animated: true)
-        }
-    }
-}
-
-// MARK: - Preview
-#if DEBUG
-struct CreateRecipeView_Previews: PreviewProvider {
-    static var previews: some View {
-        CreateRecipeView {
-            // preview callback
-        }
-    }
-}
-#endif

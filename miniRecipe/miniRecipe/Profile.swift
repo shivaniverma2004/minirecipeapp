@@ -22,10 +22,32 @@ struct Profile: Codable, Identifiable {
         case createdAt = "created_at"
     }
 
-    // MARK: - Computed helpers (optional but useful)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let u = try? c.decode(UUID.self, forKey: .id) {
+            id = u.uuidString.lowercased()
+        } else if let s = try c.decodeIfPresent(String.self, forKey: .id) {
+            id = s.lowercased()
+        } else {
+            id = nil
+        }
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        if let raw = try c.decodeIfPresent(String.self, forKey: .avatarURL) {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            avatarURL = t.isEmpty ? nil : t
+        } else {
+            avatarURL = nil
+        }
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
 
-    var safeID: String {
-        id ?? ""
+    init(id: String?, email: String?, displayName: String?, avatarURL: String?, createdAt: String?) {
+        self.id = id
+        self.email = email
+        self.displayName = displayName
+        self.avatarURL = avatarURL
+        self.createdAt = createdAt
     }
 
     var initials: String {

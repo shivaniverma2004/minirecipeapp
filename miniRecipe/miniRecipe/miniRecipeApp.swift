@@ -14,22 +14,20 @@ struct miniRecipeApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if supabase.isSignedIn {
-                    ContentView()
-                        .environmentObject(supabase)
-                } else {
-                    AuthView { success in
-                        if success {
-                            
-                        }
-                    }
-                    .environmentObject(supabase)
+                switch supabase.authState {
+                case .restoring:
+                    ProgressView("Loading…")
+                        .controlSize(.large)
+                        .accessibilityLabel("Restoring your session")
+                case .signedOut:
+                    AuthView(showsDismissButton: false, onComplete: { _ in })
+                case .signedIn:
+                    MainTabView()
                 }
             }
-            .onAppear {
-                Task {
-                    
-                }
+            .environmentObject(supabase)
+            .task {
+                await supabase.restoreSession()
             }
         }
     }

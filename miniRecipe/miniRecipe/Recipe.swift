@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct Recipe: Identifiable, Codable {
+struct Recipe: Identifiable, Codable, Hashable {
     let id: String
     let title: String
     let description: String?
@@ -25,83 +25,141 @@ struct Recipe: Identifiable, Codable {
         case likes
         case createdAt = "created_at"
     }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let u = try? c.decode(UUID.self, forKey: .id) {
+            id = u.uuidString.lowercased()
+        } else {
+            let s = try c.decode(String.self, forKey: .id)
+            id = s.lowercased()
+        }
+        title = try c.decode(String.self, forKey: .title)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        if let raw = try c.decodeIfPresent(String.self, forKey: .imageURL) {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            imageURL = t.isEmpty ? nil : t
+        } else {
+            imageURL = nil
+        }
+        if let a = try? c.decode(UUID.self, forKey: .authorID) {
+            authorID = a.uuidString.lowercased()
+        } else if let s = try c.decodeIfPresent(String.self, forKey: .authorID) {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            authorID = t.isEmpty ? nil : t.lowercased()
+        } else {
+            authorID = nil
+        }
+        likes = try c.decodeIfPresent(Int.self, forKey: .likes)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+
+    init(
+        id: String,
+        title: String,
+        description: String?,
+        imageURL: String?,
+        authorID: String?,
+        likes: Int?,
+        createdAt: String?
+    ) {
+        self.id = id.lowercased()
+        self.title = title
+        self.description = description
+        self.imageURL = imageURL
+        self.authorID = authorID.map { $0.lowercased() }
+        self.likes = likes
+        self.createdAt = createdAt
+    }
 }
 
 // MARK: - Row view
 struct RecipeRow: View {
     let recipe: Recipe
 
-    var body: some View {
-        HStack(spacing: 12) {
-            thumbnail
-                .frame(width: 72, height: 72)
-                .cornerRadius(8)
+    @EnvironmentObject private var supabase: SupabaseManager
+    @State private var authorLabel: String?
+    @ScaledMetric(relativeTo: .body) private var thumbnailSide: CGFloat = 76
 
-            VStack(alignment: .leading, spacing: 6) {
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            thumbnail
+                .frame(width: thumbnailSide, height: thumbnailSide)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 5) {
                 Text(recipe.title)
                     .font(.headline)
-                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
                     .accessibilityLabel("\(recipe.title)")
+
+                if let name = authorLabel, !name.isEmpty {
+                    Label(name, systemImage: "person.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                        .imageScale(.small)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
 
                 if let desc = recipe.description, !desc.isEmpty {
                     Text(desc)
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(2)
-                } else {
-                    Text("No description")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            VStack(alignment: .trailing) {
-                Text("\(recipe.likes ?? 0)")
-                    .font(.subheadline)
-                    .accessibilityLabel("\(recipe.likes ?? 0) likes")
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "hand.thumbsup.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("\(recipe.likes ?? 0)")
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                }
+                .accessibilityLabel("\(recipe.likes ?? 0) likes")
                 Text(relativeDateString(from: recipe.createdAt))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
+        .task(id: recipe.authorID ?? "") {
+            await loadAuthorLabel()
+        }
+    }
+
+    private func loadAuthorLabel() async {
+        guard let aid = recipe.authorID, !aid.isEmpty else { return }
+        do {
+            guard let p = try await supabase.fetchProfile(by: aid) else {
+                await MainActor.run { authorLabel = "Cook" }
+                return
+            }
+            let trimmed = p.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let label = trimmed.isEmpty ? (p.email ?? "") : trimmed
+            await MainActor.run { authorLabel = label.isEmpty ? "Cook" : label }
+        } catch {
+            await MainActor.run { authorLabel = "Cook" }
+        }
     }
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let urlString = recipe.imageURL, let url = URL(string: urlString) {
-            // AsyncImage requires iOS 15+
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty:
-                    ZStack {
-                        Color(white: 0.95)
-                        ProgressView()
-                    }
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    ZStack {
-                        Color(white: 0.95)
-                        Image(systemName: "photo")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                    }
-                @unknown default:
-                    Color(white: 0.95)
-                }
-            }
-            .clipped()
+        if let s = recipe.imageURL?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            RemoteImage(urlString: recipe.imageURL, version: 0, contentMode: .fill)
         } else {
             ZStack {
-                Color(white: 0.95)
+                Color(uiColor: .tertiarySystemFill)
                 Image(systemName: "fork.knife")
-                    .font(.title)
-                    .foregroundColor(.secondary)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -116,36 +174,3 @@ struct RecipeRow: View {
         return df.localizedString(for: date, relativeTo: Date())
     }
 }
-
-#if DEBUG
-struct RecipeRow_Previews: PreviewProvider {
-    static var sample = Recipe(
-        id: UUID().uuidString,
-        title: "Masala Pasta",
-        description: "A quick and spicy pasta recipe with Indian masala.",
-        imageURL: nil,
-        authorID: nil,
-        likes: 12,
-        createdAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60*60*24))
-    )
-
-    static var previews: some View {
-        Group {
-            RecipeRow(recipe: sample)
-                .previewLayout(.sizeThatFits)
-                .padding()
-            RecipeRow(recipe: Recipe(
-                id: UUID().uuidString,
-                title: "Photo recipe",
-                description: "Has image",
-                imageURL: "https://picsum.photos/200",
-                authorID: nil,
-                likes: 5,
-                createdAt: ISO8601DateFormatter().string(from: Date())
-            ))
-                .previewLayout(.sizeThatFits)
-                .padding()
-        }
-    }
-}
-#endif

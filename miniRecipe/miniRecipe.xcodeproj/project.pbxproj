@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FEBD4DE22EEAAE5F00D33F41 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FEBD4DE12EEAAE5F00D33F41 /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		FEBD4DD02EEAAE5F00D33F41 /* miniRecipe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = miniRecipe.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FEBD4DF02EEAAE5F00D33F41 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FEBD4DE22EEAAE5F00D33F41 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -32,6 +38,7 @@
 		FEBD4DC72EEAAE5F00D33F41 = {
 			isa = PBXGroup;
 			children = (
+				FEBD4DF02EEAAE5F00D33F41 /* Secrets.xcconfig */,
 				FEBD4DD22EEAAE5F00D33F41 /* miniRecipe */,
 				FEBD4DD12EEAAE5F00D33F41 /* Products */,
 			);
@@ -65,6 +72,7 @@
 			);
 			name = miniRecipe;
 			packageProductDependencies = (
+				FEBD4DE12EEAAE5F00D33F41 /* Supabase */,
 			);
 			productName = miniRecipe;
 			productReference = FEBD4DD02EEAAE5F00D33F41 /* miniRecipe.app */;
@@ -77,8 +85,8 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2600;
-				LastUpgradeCheck = 2600;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					FEBD4DCF2EEAAE5F00D33F41 = {
 						CreatedOnToolsVersion = 26.0.1;
@@ -94,6 +102,9 @@
 			);
 			mainGroup = FEBD4DC72EEAAE5F00D33F41;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FEBD4DE02EEAAE5F00D33F41 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FEBD4DD12EEAAE5F00D33F41 /* Products */;
 			projectDirPath = "";
@@ -248,6 +259,7 @@
 		};
 		FEBD4DDC2EEAAE6000D33F41 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEBD4DF02EEAAE5F00D33F41 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -256,6 +268,8 @@
 				DEVELOPMENT_TEAM = W7279G3A87;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "miniRecipe uses the camera so you can add photos to your recipes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "miniRecipe needs access to your photo library to attach images to recipes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -280,6 +294,7 @@
 		};
 		FEBD4DDD2EEAAE6000D33F41 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEBD4DF02EEAAE5F00D33F41 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -288,6 +303,8 @@
 				DEVELOPMENT_TEAM = W7279G3A87;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "miniRecipe uses the camera so you can add photos to your recipes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "miniRecipe needs access to your photo library to attach images to recipes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -332,6 +349,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FEBD4DE02EEAAE5F00D33F41 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FEBD4DE12EEAAE5F00D33F41 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FEBD4DE02EEAAE5F00D33F41 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FEBD4DC82EEAAE5F00D33F41 /* Project object */;
 }
