@@ -25,8 +25,16 @@ struct AccountSettingsView: View {
     @State private var pickerSource: UIImagePickerController.SourceType = .photoLibrary
     @State private var savingProfile = false
     @State private var profileMessage: String?
-    @State private var showProfileAlert = false
     @State private var avatarPreviewVersion = 0
+    @State private var initialDisplayName = ""
+    @State private var isLoaded = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case displayName
+        case newPassword
+        case confirmPassword
+    }
 
     private var trimmedName: String {
         displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,44 +42,40 @@ struct AccountSettingsView: View {
 
     private var canSaveProfile: Bool {
         if savingProfile { return false }
+        if !isLoaded { return false }
         if pickedAvatar != nil { return true }
-        return !trimmedName.isEmpty
+        return trimmedName != initialDisplayName
     }
 
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Preview")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 16) {
-                        Group {
-                            if let img = pickedAvatar {
-                                Image(uiImage: img)
-                                    .resizable()
-                                    .scaledToFill()
-                            } else {
-                                AvatarView(
-                                    urlString: savedAvatarURL,
-                                    initials: previewInitials,
-                                    size: 72,
-                                    imageVersion: avatarPreviewVersion
-                                )
-                            }
+                HStack(spacing: 16) {
+                    Group {
+                        if let img = pickedAvatar {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            AvatarView(
+                                urlString: savedAvatarURL,
+                                initials: previewInitials,
+                                size: 72,
+                                imageVersion: avatarPreviewVersion
+                            )
                         }
-                        .frame(width: 72, height: 72)
-                        .clipShape(Circle())
+                    }
+                    .frame(width: 72, height: 72)
+                    .clipShape(Circle())
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(trimmedName.isEmpty ? "Your name" : trimmedName)
-                                .font(.headline)
-                                .foregroundStyle(trimmedName.isEmpty ? .tertiary : .primary)
-                            Text("This is how others see you on recipes and in activity.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(trimmedName.isEmpty ? "Your name" : trimmedName)
+                            .font(.headline)
+                            .foregroundStyle(trimmedName.isEmpty ? .tertiary : .primary)
+                        Text("Shown on your recipes, likes, and notifications.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(.vertical, 4)
@@ -80,11 +84,22 @@ struct AccountSettingsView: View {
                 TextField("Display name", text: $displayName)
                     .textContentType(.name)
                     .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled(true)
+                    .focused($focusedField, equals: .displayName)
+                    .submitLabel(.done)
 
                 Button {
                     showPhotoOptions = true
                 } label: {
                     Label("Choose profile photo", systemImage: "photo.on.rectangle.angled")
+                }
+                .foregroundStyle(.primary)
+
+                if let profileMessage, !profileMessage.isEmpty {
+                    Label(profileMessage, systemImage: profileMessage.contains("updated") ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(profileMessage.contains("updated") ? .green : .red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Button {
@@ -106,35 +121,55 @@ struct AccountSettingsView: View {
                 .disabled(!canSaveProfile)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             } header: {
-                Text("How you appear")
+                Text("Public profile")
             } footer: {
-                Text("Saving updates your public name and photo. You can change your name, your photo, or both in one tap.")
+                Text("You can update name and photo together. Changes appear immediately across the app.")
             }
 
             Section {
                 SecureField("New password", text: $newPassword)
                     .textContentType(.newPassword)
+                    .focused($focusedField, equals: .newPassword)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .confirmPassword }
                 SecureField("Confirm password", text: $confirmPassword)
                     .textContentType(.newPassword)
+                    .focused($focusedField, equals: .confirmPassword)
+                    .submitLabel(.go)
+                    .onSubmit { Task { await changePassword() } }
+
+                if !confirmPassword.isEmpty, confirmPassword != newPassword {
+                    Label("Passwords do not match.", systemImage: "exclamationmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+
                 Button {
                     Task { await changePassword() }
                 } label: {
-                    if savingPassword {
-                        ProgressView()
-                    } else {
-                        Text("Update password")
+                    HStack {
+                        Spacer()
+                        if savingPassword {
+                            ProgressView()
+                        } else {
+                            Text("Update password")
+                                .fontWeight(.semibold)
+                        }
+                        Spacer()
                     }
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
                 .disabled(savingPassword || !passwordFormValid)
             } header: {
                 Text("Security")
             } footer: {
-                Text("Use at least 6 characters.")
+                Text("Use at least 6 characters and keep it unique.")
             }
 
             if let passwordMessage {
                 Section {
-                    Text(passwordMessage)
+                    Label(passwordMessage, systemImage: passwordMessage.contains("Updated") ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .font(.footnote)
                         .foregroundStyle(passwordMessage.contains("Updated") ? .green : .red)
                 }
@@ -150,7 +185,7 @@ struct AccountSettingsView: View {
             }
         }
         .navigationTitle("Account")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .task { await loadProfile() }
         .confirmationDialog("Profile photo", isPresented: $showPhotoOptions) {
             Button("Photo library") {
@@ -168,14 +203,10 @@ struct AccountSettingsView: View {
         .sheet(isPresented: $showPicker) {
             ImagePicker(sourceType: pickerSource, selectedImage: $pickedAvatar, onComplete: nil)
         }
-        .alert("Profile", isPresented: $showProfileAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(profileMessage ?? "")
-        }
         .alert("Password updated", isPresented: $showPasswordSuccess) {
             Button("OK", role: .cancel) {}
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var previewInitials: String {
@@ -198,7 +229,11 @@ struct AccountSettingsView: View {
         await supabase.ensureProfileRowExists()
         if let p = try? await supabase.fetchProfile(by: id) {
             displayName = p.displayName ?? ""
+            initialDisplayName = (p.displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             savedAvatarURL = p.avatarURL
+            isLoaded = true
+        } else {
+            isLoaded = true
         }
     }
 
@@ -222,10 +257,9 @@ struct AccountSettingsView: View {
             avatarPreviewVersion += 1
             NotificationCenter.default.post(name: .miniRecipeProfileUpdated, object: nil)
             profileMessage = "Your profile was updated."
-            showProfileAlert = true
+            initialDisplayName = trimmedName
         } catch {
             profileMessage = error.localizedDescription
-            showProfileAlert = true
         }
     }
 

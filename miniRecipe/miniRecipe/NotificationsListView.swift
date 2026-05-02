@@ -10,6 +10,8 @@ struct NotificationsListView: View {
     @State private var items: [AppNotification] = []
     @State private var loading = true
     @State private var error: String?
+    @State private var selectedRecipe: Recipe?
+    @State private var selectedProfileRoute: ProfileRoute?
 
     var body: some View {
         NavigationStack {
@@ -54,7 +56,7 @@ struct NotificationsListView: View {
                     List {
                         ForEach(items) { n in
                             Button {
-                                Task { await markRead(n) }
+                                Task { await openNotification(n) }
                             } label: {
                                 NotificationRow(notification: n)
                             }
@@ -80,6 +82,38 @@ struct NotificationsListView: View {
             }
             .refreshable { await load() }
             .task { await load() }
+            .navigationDestination(item: $selectedRecipe) { recipe in
+                RecipeDetailView(recipe: recipe)
+                    .environmentObject(supabase)
+            }
+            .navigationDestination(item: $selectedProfileRoute) { route in
+                ProfileView(userId: route.id, isSelf: false)
+                    .environmentObject(supabase)
+            }
+        }
+    }
+
+    private func openNotification(_ n: AppNotification) async {
+        await markRead(n)
+
+        if n.type == "like", let recipeId = n.recipeId?.lowercased() {
+            do {
+                let recipe = try await supabase.fetchRecipe(id: recipeId)
+                await MainActor.run { selectedRecipe = recipe }
+            } catch {
+                AppLog.notifications("open recipe from notification failed: \(error.localizedDescription)")
+            }
+            return
+        }
+
+        if n.type == "follow", let actor = n.actorId?.lowercased() {
+            if actor == supabase.currentUserIdString {
+                NotificationCenter.default.post(name: .miniRecipeOpenCurrentProfileTab, object: nil)
+            } else {
+                await MainActor.run {
+                    selectedProfileRoute = ProfileRoute(id: actor)
+                }
+            }
         }
     }
 
@@ -118,6 +152,10 @@ struct NotificationsListView: View {
             AppLog.notifications("mark all read failed: \(error.localizedDescription)")
         }
     }
+}
+
+private struct ProfileRoute: Identifiable, Hashable {
+    let id: String
 }
 
 private struct NotificationRow: View {

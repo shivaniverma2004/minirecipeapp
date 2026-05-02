@@ -7,21 +7,25 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject private var supabase: SupabaseManager
+    @State private var selectedTab: Tab = .recipes
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             ContentView()
+                .tag(Tab.recipes)
                 .tabItem {
                     Label("Recipes", systemImage: "book.fill")
                 }
 
             NotificationsListView()
+                .tag(Tab.activity)
                 .tabItem {
                     Label("Activity", systemImage: "bell.fill")
                 }
                 .optionalTabBadge(supabase.unreadNotificationCount)
 
             CurrentUserProfileView()
+                .tag(Tab.profile)
                 .tabItem {
                     Label("Profile", systemImage: "person.fill")
                 }
@@ -40,7 +44,16 @@ struct MainTabView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .miniRecipeOpenCurrentProfileTab)) { _ in
+            selectedTab = .profile
+        }
     }
+}
+
+private enum Tab {
+    case recipes
+    case activity
+    case profile
 }
 
 private extension View {

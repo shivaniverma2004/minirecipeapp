@@ -34,11 +34,11 @@ struct CurrentUserProfileView: View {
 
 struct ProfileView: View {
     let userId: String
-    var isSelf: Bool
+    private let isSelfHint: Bool
 
     init(userId: String, isSelf: Bool) {
         self.userId = userId.lowercased()
-        self.isSelf = isSelf
+        self.isSelfHint = isSelf
     }
 
     @EnvironmentObject private var supabase: SupabaseManager
@@ -50,66 +50,22 @@ struct ProfileView: View {
     @State private var isFollowing = false
     @State private var followBusy = false
     @State private var loading = true
+    @State private var followersListPresented = false
+    @State private var followingListPresented = false
+    @State private var showSignOutConfirm = false
+
+    private var isSelf: Bool {
+        guard let me = supabase.currentUserIdString else { return isSelfHint }
+        return me == userId || isSelfHint
+    }
 
     var body: some View {
         List {
             Section {
-                VStack(spacing: 20) {
-                    if loading && profile == nil {
-                        ProgressView()
-                            .padding(.vertical, 24)
-                    } else {
-                        AvatarView(
-                            urlString: profile?.avatarURL,
-                            initials: profile?.initials ?? "??",
-                            size: 96,
-                            imageVersion: avatarImageVersion
-                        )
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Profile photo for \(displayName)")
-
-                        VStack(spacing: 6) {
-                            Text(displayName)
-                                .font(.title2.weight(.bold))
-                                .multilineTextAlignment(.center)
-                            if let email = profile?.email, isSelf {
-                                Text(email)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        HStack(spacing: 0) {
-                            statBlock(count: followers, title: "Followers")
-                            statBlock(count: following, title: "Following")
-                        }
-                        .padding(.vertical, 4)
-
-                        if !isSelf {
-                            if supabase.isSignedIn {
-                                followControl
-                            } else {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Sign in to follow \(displayName) and see more activity.")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Button("Sign in") {
-                                        supabase.requestGlobalSignIn()
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.large)
-                                    .frame(maxWidth: .infinity)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 4)
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .listRowBackground(Color.clear)
+                profileHeaderCard
+                    .padding(.vertical, 6)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
             }
 
             Section {
@@ -144,37 +100,128 @@ struct ProfileView: View {
             RecipeDetailView(recipe: recipe)
                 .environmentObject(supabase)
         }
-        .toolbar {
-            if isSelf {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        AccountSettingsView()
-                            .environmentObject(supabase)
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                    }
-                    .accessibilityLabel("Account settings")
-                }
-            }
-        }
         .task(id: userId) { await load() }
         .refreshable { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .miniRecipeProfileUpdated)) { _ in
             avatarImageVersion += 1
             Task { await load() }
         }
+        .sheet(isPresented: $followersListPresented) {
+            NavigationStack {
+                FollowListView(userId: userId, mode: .followers)
+                    .environmentObject(supabase)
+            }
+        }
+        .sheet(isPresented: $followingListPresented) {
+            NavigationStack {
+                FollowListView(userId: userId, mode: .following)
+                    .environmentObject(supabase)
+            }
+        }
+        .confirmationDialog("Sign out of miniRecipe?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) {
+                Task {
+                    try? await supabase.signOut()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
-    private func statBlock(count: Int, title: String) -> some View {
-        VStack(spacing: 4) {
-            Text("\(count)")
-                .font(.title3.weight(.semibold))
-                .monospacedDigit()
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var profileHeaderCard: some View {
+        if loading && profile == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+        } else {
+            VStack(spacing: 18) {
+                AvatarView(
+                    urlString: profile?.avatarURL,
+                    initials: profile?.initials ?? "??",
+                    size: 96,
+                    imageVersion: avatarImageVersion
+                )
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Profile photo for \(displayName)")
+
+                VStack(spacing: 6) {
+                    Text(displayName)
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+                    if let email = profile?.email, isSelf {
+                        Text(email)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: 0) {
+                    statButton(count: followers, title: "Followers") {
+                        followersListPresented = true
+                    }
+                    statButton(count: following, title: "Following") {
+                        followingListPresented = true
+                    }
+                }
+                .padding(.vertical, 2)
+
+                if isSelf {
+                    NavigationLink {
+                        AccountSettingsView()
+                            .environmentObject(supabase)
+                    } label: {
+                        Label("Edit profile", systemImage: "slider.horizontal.3")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Button("Sign out", role: .destructive) {
+                        showSignOutConfirm = true
+                    }
+                    .font(.subheadline.weight(.semibold))
+                } else if supabase.isSignedIn {
+                    followControl
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Sign in to follow \(displayName) and see more activity.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Sign in") {
+                            supabase.requestGlobalSignIn()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private func statButton(count: Int, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text("\(count)")
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var displayName: String {
@@ -278,4 +325,116 @@ struct ProfileView: View {
             AppLog.profile("follow notification insert failed: \(error.localizedDescription)")
         }
     }
+}
+
+private enum FollowListMode: String {
+    case followers
+    case following
+
+    var title: String {
+        switch self {
+        case .followers: return "Followers"
+        case .following: return "Following"
+        }
+    }
+}
+
+private struct FollowListView: View {
+    let userId: String
+    let mode: FollowListMode
+
+    @EnvironmentObject private var supabase: SupabaseManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var loading = true
+    @State private var error: String?
+    @State private var people: [Profile] = []
+    @State private var selectedProfileRoute: FollowProfileRoute?
+
+    var body: some View {
+        Group {
+            if loading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                ContentUnavailableView("Couldn’t load \(mode.title.lowercased())", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else if people.isEmpty {
+                ContentUnavailableView("No \(mode.title.lowercased()) yet", systemImage: "person.2")
+            } else {
+                List(people, id: \.id) { person in
+                    if let pid = person.id {
+                        Button {
+                            openProfile(pid)
+                        } label: {
+                            HStack(spacing: 12) {
+                                AvatarView(urlString: person.avatarURL, initials: person.initials, size: 44)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(displayName(for: person))
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                    if let email = person.email, !email.isEmpty {
+                                        Text(email)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+        .navigationTitle(mode.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { dismiss() }
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+        .navigationDestination(item: $selectedProfileRoute) { route in
+            ProfileView(userId: route.id, isSelf: false)
+                .environmentObject(supabase)
+        }
+    }
+
+    private func load() async {
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            if mode == .followers {
+                people = try await supabase.fetchFollowers(userId: userId)
+            } else {
+                people = try await supabase.fetchFollowing(userId: userId)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func displayName(for profile: Profile) -> String {
+        let trimmedName = profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedName.isEmpty { return trimmedName }
+        if let email = profile.email, !email.isEmpty { return email }
+        return "Cook"
+    }
+
+    private func openProfile(_ profileId: String) {
+        let id = profileId.lowercased()
+        if id == supabase.currentUserIdString {
+            dismiss()
+            NotificationCenter.default.post(name: .miniRecipeOpenCurrentProfileTab, object: nil)
+        } else {
+            selectedProfileRoute = FollowProfileRoute(id: id)
+        }
+    }
+}
+
+private struct FollowProfileRoute: Identifiable, Hashable {
+    let id: String
 }

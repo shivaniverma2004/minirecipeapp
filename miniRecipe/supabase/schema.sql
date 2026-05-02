@@ -63,6 +63,13 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.recipe_likes (
+  recipe_id uuid not null references public.recipes (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (recipe_id, user_id)
+);
+
 -- ── Indexes ──────────────────────────────────────────────────────────────────
 
 create index if not exists recipes_author_id_idx
@@ -73,6 +80,12 @@ create index if not exists recipes_created_at_idx
 
 create index if not exists notifications_user_id_created_at_idx
   on public.notifications (user_id, created_at desc);
+
+create index if not exists recipe_likes_recipe_idx
+  on public.recipe_likes (recipe_id, created_at desc);
+
+create index if not exists recipe_likes_user_idx
+  on public.recipe_likes (user_id, created_at desc);
 
 create index if not exists follows_following_idx
   on public.follows (following_id);
@@ -107,6 +120,7 @@ alter table public.recipes enable row level security;
 alter table public.profiles enable row level security;
 alter table public.follows enable row level security;
 alter table public.notifications enable row level security;
+alter table public.recipe_likes enable row level security;
 
 -- recipes
 drop policy if exists "recipes_select" on public.recipes;
@@ -189,6 +203,23 @@ create policy "notifications_update_own"
   on public.notifications for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- recipe_likes
+drop policy if exists "recipe_likes_select" on public.recipe_likes;
+drop policy if exists "recipe_likes_insert_own" on public.recipe_likes;
+drop policy if exists "recipe_likes_delete_own" on public.recipe_likes;
+
+create policy "recipe_likes_select"
+  on public.recipe_likes for select
+  using (true);
+
+create policy "recipe_likes_insert_own"
+  on public.recipe_likes for insert
+  with check (auth.uid() = user_id);
+
+create policy "recipe_likes_delete_own"
+  on public.recipe_likes for delete
+  using (auth.uid() = user_id);
 
 -- ── Auth trigger: create / upsert profile on signup ───────────────────────────
 

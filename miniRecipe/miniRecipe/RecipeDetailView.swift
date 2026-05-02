@@ -20,6 +20,8 @@ struct RecipeDetailView: View {
     @State private var showEdit = false
     @State private var confirmDelete = false
     @State private var deleteBusy = false
+    @State private var showLikers = false
+    @State private var selectedAuthorProfileRoute: AuthorProfileRoute?
 
     @ScaledMetric(relativeTo: .title) private var heroHeight: CGFloat = 280
 
@@ -57,6 +59,7 @@ struct RecipeDetailView: View {
             .task(id: recipe.id) {
                 await refreshFromServer()
                 await loadAuthor()
+                await syncLikedState()
             }
             .sheet(isPresented: $showingShare) {
                 ActivityView(activityItems: shareActivityItems)
@@ -77,6 +80,16 @@ struct RecipeDetailView: View {
             ) {
                 Button("Delete", role: .destructive) { Task { await deleteRecipe() } }
                 Button("Cancel", role: .cancel) {}
+            }
+            .sheet(isPresented: $showLikers) {
+                NavigationStack {
+                    LikersListView(recipeId: recipe.id)
+                        .environmentObject(supabase)
+                }
+            }
+            .navigationDestination(item: $selectedAuthorProfileRoute) { route in
+                ProfileView(userId: route.id, isSelf: false)
+                    .environmentObject(supabase)
             }
     }
 
@@ -142,8 +155,8 @@ struct RecipeDetailView: View {
     @ViewBuilder
     private var authorLinkOrRow: some View {
         if let aid = recipe.authorID, !aid.isEmpty {
-            NavigationLink {
-                ProfileView(userId: aid, isSelf: isOwner)
+            Button {
+                openAuthorProfile(aid)
             } label: {
                 authorRow
             }
@@ -155,24 +168,40 @@ struct RecipeDetailView: View {
 
     private var likeAndShareRow: some View {
         HStack(spacing: 12) {
-            likeButton
+            likeToggleButton
+            likesCountButton
             shareTriggerButton
             Spacer(minLength: 0)
         }
     }
 
-    private var likeButton: some View {
-        Button(action: toggleLike) {
-            Label(
-                "\(localLikes)",
-                systemImage: liked ? "hand.thumbsup.fill" : "hand.thumbsup"
-            )
-            .labelStyle(.titleAndIcon)
+    private var likeToggleButton: some View {
+        Button(action: {
+            if supabase.isSignedIn {
+                toggleLike()
+            } else {
+                supabase.requestGlobalSignIn()
+            }
+        }) {
+            Image(systemName: liked ? "hand.thumbsup.fill" : "hand.thumbsup")
         }
         .buttonStyle(.borderedProminent)
         .tint(liked ? Color.accentColor : Color.gray)
         .controlSize(.large)
-        .disabled(likeBusy || !supabase.isSignedIn)
+        .disabled(likeBusy)
+        .accessibilityLabel(liked ? "Unlike recipe" : "Like recipe")
+    }
+
+    private var likesCountButton: some View {
+        Button {
+            showLikers = true
+        } label: {
+            Label("\(localLikes)", systemImage: "person.2.fill")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .accessibilityLabel("View likes")
     }
 
     private var shareTriggerButton: some View {
@@ -269,25 +298,20 @@ struct RecipeDetailView: View {
     }
 
     private func toggleLike() {
-        guard supabase.isSignedIn, !likeBusy else { return }
+        guard !likeBusy else { return }
         let previousLiked = liked
         let previousCount = localLikes
-        if liked {
-            liked = false
-            localLikes = max(0, localLikes - 1)
-        } else {
-            liked = true
-            localLikes += 1
-        }
         likeBusy = true
         likeSyncError = nil
-        let id = recipe.id.lowercased()
-        let count = localLikes
         Task {
             do {
-                try await supabase.setRecipeLikes(recipeId: id, likes: count)
-                await MainActor.run { likeSyncError = nil }
-                if !previousLiked, liked, let author = recipe.authorID, let me = supabase.currentUserIdString,
+                let result = try await supabase.toggleRecipeLike(recipeId: recipe.id)
+                await MainActor.run {
+                    liked = result.liked
+                    localLikes = result.count
+                    likeSyncError = nil
+                }
+                if !previousLiked, result.liked, let author = recipe.authorID, let me = supabase.currentUserIdString,
                    author != me {
                     await sendLikeNotification()
                 }
@@ -299,6 +323,28 @@ struct RecipeDetailView: View {
                 }
             }
             await MainActor.run { likeBusy = false }
+        }
+    }
+
+    private func syncLikedState() async {
+        guard supabase.isSignedIn else {
+            await MainActor.run { liked = false }
+            return
+        }
+        do {
+            let mine = try await supabase.isRecipeLikedByMe(recipeId: recipe.id)
+            await MainActor.run { liked = mine }
+        } catch {
+            AppLog.recipe("sync liked state failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func openAuthorProfile(_ authorId: String) {
+        let id = authorId.lowercased()
+        if id == supabase.currentUserIdString {
+            NotificationCenter.default.post(name: .miniRecipeOpenCurrentProfileTab, object: nil)
+        } else {
+            selectedAuthorProfileRoute = AuthorProfileRoute(id: id)
         }
     }
 
@@ -381,4 +427,103 @@ struct ActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct LikersListView: View {
+    let recipeId: String
+
+    @EnvironmentObject private var supabase: SupabaseManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var loading = true
+    @State private var error: String?
+    @State private var likers: [Profile] = []
+    @State private var selectedProfileRoute: LikerProfileRoute?
+
+    var body: some View {
+        Group {
+            if loading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                ContentUnavailableView("Couldn’t load likes", systemImage: "hand.thumbsup.slash", description: Text(error))
+            } else if likers.isEmpty {
+                ContentUnavailableView("No likes yet", systemImage: "hand.thumbsup")
+            } else {
+                List(likers, id: \.id) { profile in
+                    if let profileId = profile.id {
+                        Button {
+                            openProfile(profileId)
+                        } label: {
+                            HStack(spacing: 12) {
+                                AvatarView(urlString: profile.avatarURL, initials: profile.initials, size: 42)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(displayName(for: profile))
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                    if let email = profile.email, !email.isEmpty {
+                                        Text(email)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+        .navigationTitle("Likes")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { dismiss() }
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+        .navigationDestination(item: $selectedProfileRoute) { route in
+            ProfileView(userId: route.id, isSelf: false)
+                .environmentObject(supabase)
+        }
+    }
+
+    private func load() async {
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            likers = try await supabase.fetchRecipeLikers(recipeId: recipeId)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func displayName(for profile: Profile) -> String {
+        let trimmedName = profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedName.isEmpty { return trimmedName }
+        if let email = profile.email, !email.isEmpty { return email }
+        return "Cook"
+    }
+
+    private func openProfile(_ profileId: String) {
+        let id = profileId.lowercased()
+        if id == supabase.currentUserIdString {
+            dismiss()
+            NotificationCenter.default.post(name: .miniRecipeOpenCurrentProfileTab, object: nil)
+        } else {
+            selectedProfileRoute = LikerProfileRoute(id: id)
+        }
+    }
+}
+
+private struct LikerProfileRoute: Identifiable, Hashable {
+    let id: String
+}
+
+private struct AuthorProfileRoute: Identifiable, Hashable {
+    let id: String
 }

@@ -359,6 +359,175 @@ final class SupabaseManager: ObservableObject {
         return r.count ?? 0
     }
 
+    private struct FollowIDRow: Decodable {
+        let followerID: String
+        let followingID: String
+
+        enum CodingKeys: String, CodingKey {
+            case followerID = "follower_id"
+            case followingID = "following_id"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if let u = try? c.decode(UUID.self, forKey: .followerID) {
+                followerID = u.uuidString.lowercased()
+            } else {
+                followerID = try c.decode(String.self, forKey: .followerID).lowercased()
+            }
+            if let u = try? c.decode(UUID.self, forKey: .followingID) {
+                followingID = u.uuidString.lowercased()
+            } else {
+                followingID = try c.decode(String.self, forKey: .followingID).lowercased()
+            }
+        }
+    }
+
+    private struct RecipeLikeIDRow: Decodable {
+        let userID: String
+
+        enum CodingKeys: String, CodingKey {
+            case userID = "user_id"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if let u = try? c.decode(UUID.self, forKey: .userID) {
+                userID = u.uuidString.lowercased()
+            } else {
+                userID = try c.decode(String.self, forKey: .userID).lowercased()
+            }
+        }
+    }
+
+    private struct RecipeLikeInsert: Encodable {
+        let recipe_id: String
+        let user_id: String
+    }
+
+    private func fetchProfiles(for ids: [String]) async throws -> [Profile] {
+        var seen: Set<String> = []
+        let uniqueIDs = ids
+            .map { $0.lowercased() }
+            .filter { seen.insert($0).inserted }
+        guard !uniqueIDs.isEmpty else { return [] }
+        var output: [Profile] = []
+        output.reserveCapacity(uniqueIDs.count)
+        for id in uniqueIDs {
+            if let p = try await fetchProfile(by: id) {
+                output.append(p)
+            }
+        }
+        return output
+    }
+
+    func fetchFollowers(userId: String, limit: Int = 100) async throws -> [Profile] {
+        let uid = userId.lowercased()
+        let resp = try await client
+            .from("follows")
+            .select("follower_id,following_id")
+            .eq("following_id", value: uid)
+            .order("created_at", ascending: false)
+            .limit(limit)
+            .execute()
+        let rows = try Self.postgresDecoder().decode([FollowIDRow].self, from: resp.data)
+        return try await fetchProfiles(for: rows.map(\.followerID))
+    }
+
+    func fetchFollowing(userId: String, limit: Int = 100) async throws -> [Profile] {
+        let uid = userId.lowercased()
+        let resp = try await client
+            .from("follows")
+            .select("follower_id,following_id")
+            .eq("follower_id", value: uid)
+            .order("created_at", ascending: false)
+            .limit(limit)
+            .execute()
+        let rows = try Self.postgresDecoder().decode([FollowIDRow].self, from: resp.data)
+        return try await fetchProfiles(for: rows.map(\.followingID))
+    }
+
+    func isRecipeLikedByMe(recipeId: String) async throws -> Bool {
+        guard let me = currentUserIdString else { return false }
+        let rid = recipeId.lowercased()
+        let resp = try await client
+            .from("recipe_likes")
+            .select("user_id", head: true, count: .exact)
+            .eq("recipe_id", value: rid)
+            .eq("user_id", value: me)
+            .execute()
+        return (resp.count ?? 0) > 0
+    }
+
+    func toggleRecipeLike(recipeId: String) async throws -> (liked: Bool, count: Int) {
+        guard let me = currentUserIdString else {
+            throw NSError(domain: "miniRecipe", code: 401, userInfo: [NSLocalizedDescriptionKey: "Sign in to like recipes."])
+        }
+        let rid = recipeId.lowercased()
+        let alreadyLiked = (try? await isRecipeLikedByMe(recipeId: rid)) ?? false
+
+        if alreadyLiked {
+            _ = try await client
+                .from("recipe_likes")
+                .delete()
+                .eq("recipe_id", value: rid)
+                .eq("user_id", value: me)
+                .execute()
+        } else {
+            _ = try await client
+                .from("recipe_likes")
+                .insert(RecipeLikeInsert(recipe_id: rid, user_id: me))
+                .execute()
+        }
+
+        let countResp = try await client
+            .from("recipe_likes")
+            .select("user_id", head: true, count: .exact)
+            .eq("recipe_id", value: rid)
+            .execute()
+        let count = countResp.count ?? 0
+        try? await setRecipeLikes(recipeId: rid, likes: count)
+        return (liked: !alreadyLiked, count: count)
+    }
+
+    func fetchRecipeLikers(recipeId: String, limit: Int = 100) async throws -> [Profile] {
+        let rid = recipeId.lowercased()
+        let resp = try await client
+            .from("recipe_likes")
+            .select("user_id")
+            .eq("recipe_id", value: rid)
+            .order("created_at", ascending: false)
+            .limit(limit)
+            .execute()
+        let rows = try Self.postgresDecoder().decode([RecipeLikeIDRow].self, from: resp.data)
+        let likerIDs = rows.map(\.userID)
+        let profiles = try await fetchProfiles(for: likerIDs)
+        guard let me = currentUserIdString else { return profiles }
+
+        let following = try await fetchFollowing(userId: me, limit: 500)
+        let followingSet = Set(following.compactMap { $0.id?.lowercased() })
+
+        let indexByID: [String: Int] = Dictionary(
+            uniqueKeysWithValues: likerIDs.enumerated().map { ($1, $0) }
+        )
+
+        return profiles.sorted { lhs, rhs in
+            let lid = lhs.id?.lowercased() ?? ""
+            let rid = rhs.id?.lowercased() ?? ""
+
+            func priority(for id: String) -> Int {
+                if id == me { return 0 }
+                if followingSet.contains(id) { return 1 }
+                return 2
+            }
+
+            let lp = priority(for: lid)
+            let rp = priority(for: rid)
+            if lp != rp { return lp < rp }
+            return (indexByID[lid] ?? .max) < (indexByID[rid] ?? .max)
+        }
+    }
+
     // MARK: - Profiles
 
     func fetchProfile(by id: String) async throws -> Profile? {
