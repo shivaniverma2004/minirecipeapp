@@ -1,6 +1,6 @@
 # miniRecipe
 
-A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supabase](https://supabase.com) (Postgres + Auth + optional Storage).
+A SwiftUI iOS recipe app backed by [Supabase](https://supabase.com) with native-feeling social flows (likes, follows, activity, and profile navigation).
 
 ## Requirements
 
@@ -21,7 +21,7 @@ A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supaba
 
 2. Open `miniRecipe.xcodeproj` and build. Swift Package Manager will fetch **supabase-swift**.
 
-3. **Database:** run `supabase/schema.sql` for a clean project. If you already have tables from an older version, run `supabase/migration_v2.sql` as well. The schema adds **follows**, **notifications**, **`set_recipe_likes` RPC**, **avatars** storage, and tighter recipe RLS (only the author can edit/delete; anyone signed in can like via RPC).
+3. **Database:** run `supabase/schema.sql` for a clean project. If you already have tables from an older version, run `supabase/migration_v2.sql` as well. The schema adds **follows**, **notifications**, **`recipe_likes`**, **`set_recipe_likes` RPC**, **avatars** storage, and tighter recipe RLS.
 
 4. **Database (columns):** ensure a `recipes` table compatible with the `Recipe` model:
 
@@ -35,7 +35,7 @@ A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supaba
    | `likes`       | integer, nullable              |
    | `created_at`  | timestamptz or ISO text        |
 
-5. **Row Level Security:** Defined in `schema.sql` / `migration_v2.sql` (recipe read for all; insert only with `author_id = auth.uid()`; update/delete only for author; likes via **`set_recipe_likes`** RPC).
+5. **Row Level Security:** Defined in `schema.sql` / `migration_v2.sql` (recipe read for all; insert only with `author_id = auth.uid()`; update/delete only for author; `recipe_likes` is user-owned).
 
 6. **`profiles`:** Included in `schema.sql`; trigger creates a row on signup.
 
@@ -44,9 +44,10 @@ A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supaba
 ## App flow
 
 - **Session:** Loading state → auth or **tab bar** (Recipes · Activity · Profile).
-- **Recipes:** List, search, create; detail shows hero image, author (links to profile), like (creates an in-app **notification** for the author), share; owners get **Edit / Delete**.
-- **Activity:** In-app notifications (likes, follows)—not push/APNs. **Sign in** required.
-- **Profile:** Your recipes, followers/following counts, **follow** other cooks; **Account** settings for display name, **profile photo**, **password**, sign out.
+- **Recipes:** List, search, create; detail shows hero image, author, like/unlike, likes list (who liked), share; owners get **Edit / Delete**.
+- **Activity:** Like/follow notifications deep-link to recipe/profile. Tapping your own user id routes to your **Profile tab**.
+- **Profile:** Followers/following lists, follow actions, and self-routing behavior similar to Instagram-like apps.
+- **Account settings:** Display name + avatar updates, password updates, and sign out.
 - **Sign-up:** Email confirmation is handled with an on-screen message when no session is returned.
 - **Offline list:** Stale data + banner when refresh fails (see `RecipeFeedViewModel`).
 
@@ -57,9 +58,11 @@ A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supaba
 | `miniRecipe/miniRecipeApp.swift` | Auth phase gate, session restore |
 | `miniRecipe/ContentView.swift` | List, search, banner, sheets, sign-out confirm |
 | `miniRecipe/RecipeFeedViewModel.swift` | Fetch, cache last success, filter |
-| `miniRecipe/SupabaseManager.swift` | Auth, recipes, likes patch, storage, profiles |
-| `miniRecipe/AuthView.swift` | Sign in/up + email confirmation messaging |
-| `miniRecipe/RecipeDetailView.swift` | Profile, persisted likes |
+| `miniRecipe/SupabaseManager.swift` | Auth, recipes, follows, likes, notifications, storage, profiles |
+| `miniRecipe/AuthView.swift` | Custom sign in/up UI with password visibility toggle |
+| `miniRecipe/RecipeDetailView.swift` | Recipe detail, likes list, author/profile routing |
+| `miniRecipe/ProfileView.swift` | Profile card, follow lists, account entry |
+| `miniRecipe/AccountSettingsView.swift` | Profile + security settings |
 | `miniRecipe/APIError+UserMessage.swift` | Friendlier errors (RLS, network) |
 | `miniRecipe/Config.swift` | Reads `SUPABASE_*` from Info; DEBUG fallbacks |
 | `Secrets.example.xcconfig` | Template for local secrets |
@@ -69,6 +72,3 @@ A small **SwiftUI** iOS app for browsing and creating recipes, backed by [Supaba
 - Use the **anon** key only; protect data with **RLS**. Never ship a **service role** key in the app.
 - **Release** builds **fatalError** if `SUPABASE_URL` / `SUPABASE_ANON_KEY` are missing from the merged Info plist—configure `Secrets.xcconfig` for distribution.
 
-## License
-
-Add your license here if you distribute the project.
